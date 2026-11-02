@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="color-scheme" content="light"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>지수보다 강한 종목</title>
+<style>
+:root{--bg:#f6f3ec;--card:#fffdf8;--fg:#1f1f1f;--mute:#77736b;--line:#e4dfd3;--up:#e2493d;--down:#2f6fd8;--gold:#c8961e;--acc:#1f1f1f;--hl:#f1e7cf}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 16px}
+h1{font-size:22px;margin:0 0 2px}.sub{color:var(--mute);margin-bottom:14px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bar button{border:1px solid var(--line);background:var(--card);color:var(--fg);padding:7px 18px;border-radius:20px;cursor:pointer;font-size:14px}
+.bar button.on{background:var(--acc);color:var(--bg)}
+.bar label{color:var(--mute);margin-left:8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.compare{margin-top:14px}
+.modes{display:flex;justify-content:center;gap:6px;margin-bottom:8px}
+.modes button{border:1px solid var(--line);background:var(--card);color:var(--mute);padding:5px 14px;border-radius:16px;cursor:pointer;font-size:13px}
+.modes button.on{background:var(--hl);color:var(--fg);font-weight:700;border-color:var(--gold)}
+.ctitle b.low{color:var(--down)}
+.b3{background:var(--down)}
+.ctitle{font-size:20px;font-weight:700;text-align:center;margin:2px 0 10px}
+.ctitle b{color:var(--gold)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:820px){.pair{grid-template-columns:1fr}}
+.pane{border:1px solid var(--line);border-radius:12px;padding:10px 8px 4px}
+.pane h3{margin:0;text-align:center;font-size:16px}
+svg{width:100%;height:auto;display:block}
+.explain{margin-top:12px;background:var(--hl);border-radius:12px;padding:12px 16px}
+.explain p{margin:4px 0}.explain .verdict{font-weight:700;margin-top:8px}
+.stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 12px;min-width:110px}
+.stat small{color:var(--mute);display:block}.stat b{font-size:16px;font-variant-numeric:tabular-nums}
+.tablecard{margin-top:14px;max-height:520px;overflow:auto;padding:0}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--mute);font-weight:500;cursor:pointer;position:sticky;top:0;background:var(--card)}
+td:nth-child(2),th:nth-child(2){text-align:left}
+tbody tr{cursor:pointer}tbody tr.sel{background:var(--hl)}
+.p{color:var(--up)}.n{color:var(--down)}
+.badge{font-size:11px;padding:1px 6px;border-radius:8px;color:#fff;margin-left:4px}
+.b1{background:var(--gold)}.b2{background:var(--up)}
+</style></head><body><div class="wrap">
+<h1>지수보다 강한 종목</h1>
+<div class="sub" id="asof"></div>
+<div class="bar"><button data-m="kr">국내</button><button data-m="us">미국</button>
+<label><input type="checkbox" id="onlyBreak"> 종목만 돌파</label>
+<label><input type="checkbox" id="onlySupport"> 종목만 지지</label>
+<label><input type="checkbox" id="onlyStrong"> 강한 종목만</label></div>
+
+<div class="card compare">
+ <div class="modes" id="modes"><button data-v="high">전고점 돌파</button><button data-v="low">저점 지지</button></div>
+ <div class="ctitle" id="ctitle"></div>
+ <div class="pair">
+  <div class="pane"><h3 id="lname"></h3><svg id="left" viewBox="0 0 600 340"></svg></div>
+  <div class="pane"><h3 id="rname"></h3><svg id="right" viewBox="0 0 600 340"></svg></div>
+ </div>
+ <div class="explain" id="explain"></div>
+</div>
+
+<div class="card tablecard"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
+</div>
+<script>
+const DATA=/*DATA*/null;
+const COLS=["순위","이름","종가","지수전고점대비","RS20","RS60","버팀","버팀승률","종합점수"];
+const HEAD={"지수전고점대비":"지수 전고점比"};
+let mkt=DATA.kr?"kr":"us",sortKey="종합점수",asc=false,cur=null;
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const num=(v,d=2)=>Number(v).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+const pct=v=>(v>0?"+":"")+num(v,1)+"%";
+const md=s=>{const [y,m,d]=s.split("-");return `${+m}월 ${+d}일`};
+
+function candles(svg,dates,bars,o){
+ const W=600,H=340,L=8,R=62,T=34,B=46,n=dates.length,cw=(W-L-R)/n;
+ const vals=bars.filter(Boolean).flatMap(b=>[b[1],b[2]]).concat(o.hline??[]);
+ let lo=Math.min(...vals),hi=Math.max(...vals);const pad=(hi-lo)*.08||1;lo-=pad;hi+=pad;
+ const y=v=>T+(hi-v)/(hi-lo)*(H-T-B),x=i=>L+cw*i+cw/2;
+ let g="";
+ for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--line")}"/><text x="${W-R+6}" y="${y(v)+4}" font-size="11" fill="${css("--mute")}">${num(v,v>1000?0:2)}</text>`}
+ bars.forEach((b,i)=>{if(!b)return;const [op,h,l,c]=b,col=c>=op?css("--up"):css("--down");
+  g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(h)}" y2="${y(l)}" stroke="${col}"/><rect x="${x(i)-cw*.35}" width="${cw*.7}" y="${y(Math.max(op,c))}" height="${Math.max(1,Math.abs(y(op)-y(c)))}" fill="${col}"/>`});
+ const pk=o.peak;
+ g+=`<line x1="${x(pk)}" x2="${x(pk)}" y1="${T-10}" y2="${H-B+16}" stroke="${css("--fg")}" stroke-dasharray="4 4"/>`;
+ const hc=css(o.color||"--gold"),x0=o.low?Math.max(L,x(pk)-70):x(pk),ty=o.low?y(o.hline)+20:y(o.hline)-8;
+ g+=`<line x1="${x0}" x2="${W-R}" y1="${y(o.hline)}" y2="${y(o.hline)}" stroke="${hc}" stroke-width="2.5" ${o.low?"":'stroke-dasharray="9 6"'}/>`;
+ g+=`<text x="${Math.min(Math.max(x0+(o.low?0:16),L+4),W-R-150)}" y="${ty}" font-size="13" font-weight="700" fill="${hc}" stroke="${css("--card")}" stroke-width="4" paint-order="stroke">${o.hlabel}</text>`;
+ if(o.hit!=null&&o.hit>=0){g+=`<circle cx="${x(o.hit)}" cy="${y(bars[o.hit][3])}" r="7" fill="none" stroke="${css("--gold")}" stroke-width="2.5"/><text x="${Math.min(x(o.hit),W-R-40)}" y="${y(bars[o.hit][3])+(Math.abs(o.hit-pk)*cw<190?26:-14)}" text-anchor="middle" stroke="${css("--card")}" stroke-width="4" paint-order="stroke" font-size="12" font-weight="700" fill="${css("--gold")}">돌파 ${md(dates[o.hit])}</text>`}
+ g+=`<text x="${x(pk)}" y="${H-B+32}" text-anchor="middle" font-size="12" fill="${css("--fg")}">${md(dates[pk])}</text>`;
+ g+=`<text x="${L}" y="${H-6}" font-size="11" fill="${css("--mute")}">${md(dates[0])}</text>${W-R-x(pk)>70?`<text x="${W-R}" y="${H-6}" text-anchor="end" font-size="11" fill="${css("--mute")}">${md(dates[n-1])}</text>`:""}`;
+ svg.innerHTML=g;
+}
+
+let view=null;
+function show(code,v){
+ const D=DATA[mkt],r=D.rows.find(x=>x.코드===code);if(!r)return;
+ if(code!==cur&&!v)view=r.종목만지지&&!r.종목만돌파?"low":"high";
+ if(v)view=v;cur=code;
+ document.querySelectorAll("#modes button").forEach(b=>b.classList.toggle("on",b.dataset.v===view));
+ if(view==="low")return showLow(D,r);
+ document.querySelectorAll("#bd tr").forEach(tr=>tr.classList.toggle("sel",tr.dataset.c===code));
+ const dates=D.dates,ib=D.index[r.비교지수]||[],sb=D.stocks[code]||[];
+ const peak=Math.max(0,dates.indexOf(r.지수전고점일)),pkIdx=peak>=0?peak:0;
+ const iPeak=ib[pkIdx]?ib[pkIdx][3]:null,iNow=ib.filter(Boolean).at(-1)[3];
+ const sAtPeak=sb[pkIdx]?sb[pkIdx][3]:null,sNow=sb.filter(Boolean).at(-1)[3];
+ const hit=r.돌파일?dates.indexOf(r.돌파일):null;
+ document.getElementById("ctitle").innerHTML=`${r.비교지수}의 <b>전고점</b>은 ${md(r.지수전고점일)}, ${r.이름}의 ${r.돌파일?"돌파는 "+md(r.돌파일):"돌파는 아직"}`;
+ document.getElementById("lname").textContent=r.비교지수;
+ document.getElementById("rname").textContent=r.이름;
+ candles(document.getElementById("left"),dates,ib,{peak:pkIdx,hline:iPeak,hlabel:`${md(r.지수전고점일)} 전고점`});
+ candles(document.getElementById("right"),dates,sb,{peak:pkIdx,hline:r.종목기준선,hlabel:`전고점 날까지 최고 종가`,hit});
+ const iSince=(iNow/iPeak-1)*100,sSince=sAtPeak?(sNow/sAtPeak-1)*100:NaN,sVsLine=(sNow/r.종목기준선-1)*100;
+ let verdict;
+ if(r.종목만돌파)verdict=`➜ ${r.비교지수}는 아직 전고점을 못 넘었는데 ${r.이름}만 먼저 넘었어요. 지수보다 강한 종목 신호예요.`;
+ else if(r.지수전고점대비>=0)verdict=`➜ ${r.비교지수}가 지금 전고점 근처라 '종목만 돌파'로 보기는 어려워요.`;
+ else verdict=`➜ ${r.이름}도 아직 기준선을 넘지 못했어요. 지수와 비슷하거나 약한 흐름이에요.`;
+ document.getElementById("explain").innerHTML=`
+  <p><b>왼쪽 ${r.비교지수}</b>: 최근 120거래일 최고점은 ${md(r.지수전고점일)} ${num(iPeak)}이에요. 오늘은 그보다 <b class="${iSince>=0?"p":"n"}">${pct(iSince)}</b> 위치예요.</p>
+  <p><b>오른쪽 ${r.이름}</b>: 같은 날(${md(r.지수전고점일)})까지의 최고 종가는 ${num(r.종목기준선)}였어요. ${r.돌파일?`${md(r.돌파일)}에 이 가격을 넘어섰고, 지금은 기준선보다 <b class="${sVsLine>=0?"p":"n"}">${pct(sVsLine)}</b>예요.`:`아직 이 가격을 넘지 못했어요 (기준선 대비 <b class="n">${pct(sVsLine)}</b>).`}</p>
+  <p>지수 전고점 이후 지금까지: ${r.비교지수} <b class="${iSince>=0?"p":"n"}">${pct(iSince)}</b> vs ${r.이름} <b class="${sSince>=0?"p":"n"}">${isNaN(sSince)?"-":pct(sSince)}</b></p>
+  <p class="verdict">${verdict}</p>
+  <div class="stats">
+   <div class="stat"><small>RS20 (20일 초과수익)</small><b class="${r.RS20>0?"p":"n"}">${pct(r.RS20)}p</b></div>
+   <div class="stat"><small>RS60 (60일 초과수익)</small><b class="${r.RS60>0?"p":"n"}">${pct(r.RS60)}p</b></div>
+   <div class="stat"><small>지수 하락일 버팀</small><b class="${r.버팀>0?"p":"n"}">${pct(r.버팀)}p</b></div>
+   <div class="stat"><small>하락일 승률</small><b>${num(r.버팀승률,0)}%</b></div>
+   <div class="stat"><small>종합점수</small><b>${num(r.종합점수,1)}</b></div>
+  </div>`;
+}
+
+function showLow(D,r){
+ document.querySelectorAll("#bd tr").forEach(tr=>tr.classList.toggle("sel",tr.dataset.c===r.코드));
+ const dates=D.dates,ib=D.index[r.비교지수]||[],sb=D.stocks[r.코드]||[];
+ const ex=document.getElementById("explain");
+ document.getElementById("lname").textContent=r.비교지수;document.getElementById("rname").textContent=r.이름;
+ if(!r.지수저점이탈일){
+  document.getElementById("ctitle").innerHTML=`최근 120거래일 동안 ${r.비교지수}가 <b class="low">직전 저점</b>을 깬 날이 없어요`;
+  const last=dates.length-1;
+  candles(document.getElementById("left"),dates,ib,{peak:last,hline:r.지수직전저점??ib.at(-1)[2],hlabel:"직전 저점",color:"--down",low:true});
+  candles(document.getElementById("right"),dates,sb,{peak:last,hline:r.종목저점??sb.at(-1)[2],hlabel:"자기 저점",color:"--down",low:true});
+  ex.innerHTML=`<p>지수가 직전 저점을 깨는 급락이 없어서 '저점 지지' 비교는 해당 없어요. '전고점 돌파' 쪽을 확인해 보세요.</p>`;return}
+ const k=dates.indexOf(r.지수저점이탈일),dt=md(r.지수저점이탈일);
+ document.getElementById("ctitle").innerHTML=`${r.비교지수}가 <b class="low">직전 저점</b>을 깬 ${dt}, ${r.이름}은 ${r.종목만지지?"자기 저점을 지켰어요":"자기 저점도 깼어요"}`;
+ candles(document.getElementById("left"),dates,ib,{peak:k,hline:r.지수직전저점,hlabel:"직전 저점",color:"--down",low:true});
+ candles(document.getElementById("right"),dates,sb,{peak:k,hline:r.종목저점,hlabel:"자기 저점",color:"--down",low:true});
+ const iAt=ib[k]?ib[k][3]:NaN,sAt=sb[k]?sb[k][3]:NaN,iNow=ib.filter(Boolean).at(-1)[3],sNow=sb.filter(Boolean).at(-1)[3];
+ const iBreak=(iAt/r.지수직전저점-1)*100,sGap=(sAt/r.종목저점-1)*100,iSince=(iNow/iAt-1)*100,sSince=(sNow/sAt-1)*100;
+ ex.innerHTML=`
+  <p><b>왼쪽 ${r.비교지수}</b>: 그 전 60거래일의 최저 종가(직전 저점)는 ${num(r.지수직전저점)}였는데, ${dt}에 ${num(iAt)}로 마감해서 <b class="n">${pct(iBreak)}</b> 깨고 내려갔어요.</p>
+  <p><b>오른쪽 ${r.이름}</b>: 같은 기간 자기 저점은 ${num(r.종목저점)}였고, 같은 날 종가는 ${num(sAt)}로 저점보다 <b class="${sGap>=0?"p":"n"}">${pct(sGap)}</b> ${sGap>=0?"위에 있었어요":"아래였어요"}. ${r.종목만지지?"그 뒤로도 한 번도 자기 저점 아래로 마감하지 않았어요.":"그 뒤에 자기 저점 아래로 마감한 날이 있어요."}</p>
+  <p>${dt} 이후 지금까지: ${r.비교지수} <b class="${iSince>=0?"p":"n"}">${pct(iSince)}</b> vs ${r.이름} <b class="${sSince>=0?"p":"n"}">${pct(sSince)}</b></p>
+  <p class="verdict">${r.종목만지지?`➜ 지수가 저점을 깰 때 ${r.이름}은 버텼어요. 매도세를 이겨낸 지수보다 강한 종목 신호예요.`:`➜ 지수와 함께 저점을 깼어요. 저점 지지 신호는 아니에요.`}</p>`;
+}
+
+function render(){
+ document.querySelectorAll(".bar button").forEach(b=>b.classList.toggle("on",b.dataset.m===mkt));
+ const D=DATA[mkt];
+ if(!D){document.querySelector(".compare").style.display="none";document.getElementById("asof").textContent="";document.getElementById("hd").innerHTML="";document.getElementById("bd").innerHTML=`<tr><td colspan=9 style="text-align:center;color:var(--mute)">이 시장 데이터가 아직 없어요. fetch_data.py와 screener.py를 먼저 실행해 주세요.</td></tr>`;return}
+ document.getElementById("asof").textContent=`기준일 ${D.asof} · 종합점수 상위 ${D.rows.length}종목`;
+ let rows=D.rows.map((r,i)=>({...r,순위:i+1}));
+  // 체크한 조건 중 하나라도 해당하면 표시
+ const conds=[[onlyBreak,"종목만돌파"],[onlySupport,"종목만지지"],[onlyStrong,"강한종목"]].filter(c=>c[0].checked);
+ if(conds.length)rows=rows.filter(r=>conds.some(c=>r[c[1]]));
+ rows.sort((a,b)=>(asc?1:-1)*((a[sortKey]>b[sortKey])-(a[sortKey]<b[sortKey])));
+ document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k="${c}">${HEAD[c]||c}${c===sortKey?(asc?" ▲":" ▼"):""}</th>`).join("");
+ document.getElementById("bd").innerHTML=rows.map(r=>`<tr data-c="${r.코드}"><td>${r.순위}</td><td>${r.이름}${r.종목만돌파?'<span class="badge b1">돌파</span>':""}${r.종목만지지?'<span class="badge b3">지지</span>':""}${r.RS강세?'<span class="badge b2">RS</span>':""}<br><small style="color:var(--mute)">${r.코드} · ${r.비교지수}</small></td>`+
+  COLS.slice(2).map(k=>`<td class="${["지수전고점대비","RS20","RS60","버팀"].includes(k)?(r[k]>0?"p":"n"):""}">${k==="종가"?num(r[k],r[k]>1000?0:2):k==="지수전고점대비"?pct(r[k]):num(r[k],k==="종합점수"||k==="버팀승률"?1:2)}</td>`).join("")+"</tr>").join("");
+ document.querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;asc=sortKey===k?!asc:false;sortKey=k;render()});
+ document.querySelectorAll("#bd tr").forEach(tr=>tr.onclick=()=>show(tr.dataset.c));
+ document.querySelector(".compare").style.display=rows.length?"":"none";
+ if(!rows.length){document.getElementById("bd").innerHTML+=`<tr><td colspan=9 style="text-align:center;color:var(--mute)">조건에 맞는 종목이 없어요</td></tr>`;return}
+ const keep=rows.find(r=>r.코드===cur);if(keep)show(cur,view);else if(rows[0]){cur=null;show(rows[0].코드)}
+}
+const onlyBreak=document.getElementById("onlyBreak"),onlyStrong=document.getElementById("onlyStrong"),onlySupport=document.getElementById("onlySupport");
+document.querySelectorAll("#modes button").forEach(b=>b.onclick=()=>show(cur,b.dataset.v));
+document.querySelectorAll(".bar button").forEach(b=>b.onclick=()=>{mkt=b.dataset.m;cur=null;render()});
+onlyBreak.onchange=onlyStrong.onchange=onlySupport.onchange=render;
+render();
+</script></body></html>

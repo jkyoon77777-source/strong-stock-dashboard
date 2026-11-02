@@ -1,0 +1,14 @@
+# 키·비밀값 (절대 올리지 않음)
+.env
+.env.*
+!.env.example
+*.key
+
+# 데이터·생성물
+data/
+dashboard.html
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
